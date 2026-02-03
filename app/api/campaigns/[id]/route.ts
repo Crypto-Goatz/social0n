@@ -33,6 +33,14 @@ export async function GET(
       .eq('campaign_id', id)
       .order('scheduled_for', { ascending: true });
 
+    // Check if campaign is paid
+    const { data: payment } = await supabaseAdmin
+      .from('social0n_payments')
+      .select('id')
+      .eq('campaign_id', id)
+      .eq('status', 'succeeded')
+      .single();
+
     return NextResponse.json({
       success: true,
       campaign: {
@@ -41,6 +49,7 @@ export async function GET(
         type_config: CAMPAIGN_TYPES[campaign.type as CampaignType],
       },
       posts: posts || [],
+      isPaid: !!payment,
     });
   } catch (error) {
     console.error('Get campaign error:', error);

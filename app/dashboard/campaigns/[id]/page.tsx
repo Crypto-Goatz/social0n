@@ -23,6 +23,9 @@ import {
   Twitter,
   MapPin,
   Sparkles,
+  CreditCard,
+  Wand2,
+  RefreshCw,
 } from 'lucide-react';
 
 interface Campaign {
@@ -90,6 +93,8 @@ export default function CampaignDetailPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [isPaid, setIsPaid] = useState(false);
 
   useEffect(() => {
     fetchCampaign();
@@ -103,6 +108,7 @@ export default function CampaignDetailPage() {
       if (data.success) {
         setCampaign(data.campaign);
         setPosts(data.posts || []);
+        setIsPaid(data.isPaid || false);
       }
     } catch (error) {
       console.error('Error fetching campaign:', error);
@@ -111,25 +117,115 @@ export default function CampaignDetailPage() {
     }
   };
 
-  const handleStatusChange = async (newStatus: string) => {
+  const handleStart = async () => {
     if (!campaign) return;
     setActionLoading(true);
 
     try {
-      const res = await fetch(`/api/campaigns/${campaign.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
+      const res = await fetch(`/api/campaigns/${campaign.id}/start`, {
+        method: 'POST',
       });
 
       const data = await res.json();
       if (data.success) {
-        setCampaign({ ...campaign, status: newStatus as Campaign['status'] });
+        setCampaign({ ...campaign, status: 'active' });
+        fetchCampaign(); // Refresh to get posts
+      } else if (data.requiresPayment) {
+        handlePayment();
+      } else {
+        alert(data.error || 'Failed to start campaign');
       }
     } catch (error) {
-      console.error('Error updating campaign:', error);
+      console.error('Error starting campaign:', error);
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handlePause = async () => {
+    if (!campaign) return;
+    setActionLoading(true);
+
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}/pause`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCampaign({ ...campaign, status: 'paused' });
+      }
+    } catch (error) {
+      console.error('Error pausing campaign:', error);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!campaign) return;
+    setActionLoading(true);
+
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}/resume`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        setCampaign({ ...campaign, status: 'active' });
+      }
+    } catch (error) {
+      console.error('Error resuming campaign:', error);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handlePayment = async () => {
+    if (!campaign) return;
+    setActionLoading(true);
+
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: campaign.id }),
+      });
+
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        alert(data.error || 'Failed to create checkout session');
+      }
+    } catch (error) {
+      console.error('Error creating checkout:', error);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleGenerateContent = async () => {
+    if (!campaign) return;
+    setGenerating(true);
+
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}/generate`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        fetchCampaign(); // Refresh to see new content
+        alert(`Generated content for ${data.generated} posts`);
+      } else {
+        alert(data.error || 'Failed to generate content');
+      }
+    } catch (error) {
+      console.error('Error generating content:', error);
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -205,9 +301,19 @@ export default function CampaignDetailPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          {campaign.status === 'draft' && (
+          {campaign.status === 'draft' && !isPaid && (
             <button
-              onClick={() => handleStatusChange('active')}
+              onClick={handlePayment}
+              disabled={actionLoading}
+              className="flex items-center gap-2 px-5 py-2.5 btn-gradient text-white rounded-xl font-semibold disabled:opacity-50"
+            >
+              <CreditCard className="w-5 h-5" />
+              Pay ${campaign.type_config?.price || 197}
+            </button>
+          )}
+          {campaign.status === 'draft' && isPaid && (
+            <button
+              onClick={handleStart}
               disabled={actionLoading}
               className="flex items-center gap-2 px-5 py-2.5 btn-gradient text-white rounded-xl font-semibold disabled:opacity-50"
             >
@@ -216,18 +322,32 @@ export default function CampaignDetailPage() {
             </button>
           )}
           {campaign.status === 'active' && (
-            <button
-              onClick={() => handleStatusChange('paused')}
-              disabled={actionLoading}
-              className="flex items-center gap-2 px-5 py-2.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-xl font-semibold hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
-            >
-              <Pause className="w-5 h-5" />
-              Pause
-            </button>
+            <>
+              <button
+                onClick={handleGenerateContent}
+                disabled={generating}
+                className="flex items-center gap-2 px-4 py-2.5 bg-purple-500/20 text-purple-400 border border-purple-500/30 rounded-xl font-medium hover:bg-purple-500/30 transition-colors disabled:opacity-50"
+              >
+                {generating ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Wand2 className="w-4 h-4" />
+                )}
+                Generate Content
+              </button>
+              <button
+                onClick={handlePause}
+                disabled={actionLoading}
+                className="flex items-center gap-2 px-5 py-2.5 bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 rounded-xl font-semibold hover:bg-yellow-500/30 transition-colors disabled:opacity-50"
+              >
+                <Pause className="w-5 h-5" />
+                Pause
+              </button>
+            </>
           )}
           {campaign.status === 'paused' && (
             <button
-              onClick={() => handleStatusChange('active')}
+              onClick={handleResume}
               disabled={actionLoading}
               className="flex items-center gap-2 px-5 py-2.5 btn-gradient text-white rounded-xl font-semibold disabled:opacity-50"
             >
