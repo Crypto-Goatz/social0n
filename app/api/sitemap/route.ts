@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server';
 // Generates XML sitemap for SEO
 // ============================================================
 
-const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://social0n.com';
+const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || 'https://social0n.com').trim();
 
 export async function GET() {
   const pages = [
